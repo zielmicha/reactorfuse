@@ -290,5 +290,3 @@ type
     off*: uint64
     namelen*: uint32
     `type`*: uint32
-    name*: array[0, char]
-
