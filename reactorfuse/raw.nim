@@ -18,7 +18,7 @@ const
   S_ISVTX = 0o001000
 
 const
-  BadInode = uint64(0xFFFFFFFF)
+  BadInode* = uint64(0xFFFFFFFF)
 
 type
   Attributes* = fuse_attr
