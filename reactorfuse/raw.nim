@@ -17,6 +17,9 @@ const
   S_ISGID = 0o002000
   S_ISVTX = 0o001000
 
+const
+  BadInode = uint64(0xFFFFFFFF)
+
 type
   Attributes* = fuse_attr
 
@@ -92,11 +95,11 @@ proc respond(conn: FuseConnection, req: Request, data: string, error: cint=0): F
 proc respond[T](conn: FuseConnection, req: Request, data: T, error: cint=0): Future[void] =
   conn.respond(req, packStruct(data), error)
 
-proc respondToGetAttr(conn: FuseConnection, req: Request, attr: Attributes, attrTimeout=Time()): Future[void] =
+proc respondToGetAttr*(conn: FuseConnection, req: Request, attr: Attributes, attrTimeout=Time()): Future[void] =
   assert req.kind == fuseGetAttr
   conn.respond(req, fuse_attr_out(attr_valid: attrTimeout.sec, attr_valid_nsec: attrTimeout.nsec, attr: attr))
 
-proc respondToLookup(conn: FuseConnection, req: Request, newNodeId: NodeId, attr: Attributes,
+proc respondToLookup*(conn: FuseConnection, req: Request, newNodeId: NodeId, attr: Attributes,
                      attrTimeout: Time=Time(), entryTimeout: Time=forever, generation: uint64=0): Future[void] =
   assert req.kind == fuseLookup
   conn.respond(req, fuse_entry_out(attr_valid: attrTimeout.sec,
@@ -107,28 +110,27 @@ proc respondToLookup(conn: FuseConnection, req: Request, newNodeId: NodeId, attr
                                    attr: attr,
                                    nodeid: newNodeId))
 
-proc respondToOpen(conn: FuseConnection, req: Request, fileHandle: uint64, keepCache=false): Future[void] =
+proc respondToOpen*(conn: FuseConnection, req: Request, fileHandle: uint64, keepCache=false): Future[void] =
   assert req.kind == fuseOpen
   conn.respond(req, fuse_open_out(fh: fileHandle, open_flags: if keepCache: FOPEN_KEEP_CACHE else: 0))
 
-proc respondToRead(conn: FuseConnection, req: Request, data: string): Future[void] =
+proc respondToRead*(conn: FuseConnection, req: Request, data: string): Future[void] =
   assert req.kind == fuseRead
   conn.respond(req, data)
 
-proc respondToReadAll(conn: FuseConnection, req: Request, data: string): Future[void] =
+proc respondToReadAll*(conn: FuseConnection, req: Request, data: string): Future[void] =
   var slice = ""
   if req.offset < data.len.uint64:
     let size = min(data.len.uint64 - req.offset, req.size.uint64)
     slice = data[int(req.offset)..<int(req.offset + size)]
 
-  echo "respoding with ", slice.repr
   conn.respondToRead(req, slice)
 
-proc respondError(conn: FuseConnection, req: Request, code: cint): Future[void] =
+proc respondError*(conn: FuseConnection, req: Request, code: cint): Future[void] =
   assert req.kind != fuseForget
   conn.respond(req, "", error=(-code))
 
-proc appendDirent(buffer: var string, name: string, inode: uint64, kind: DirEntryKind=dtUnknown) =
+proc appendDirent*(buffer: var string, name: string, inode: uint64, kind: DirEntryKind=dtUnknown) =
   assert buffer.len mod 8 == 0
   let paddedName = name & ("\0".repeat(8 - name.len mod 8))
   let dirent = fuse_dirent(ino: inode,
