@@ -72,7 +72,7 @@ type
   FuseConnection* = ref object
     fakePipe: IpcPipe
     pipe: Pipe[string]
-    requests*: Stream[Request]
+    requests*: Input[Request]
 
   Time* = object
     sec: uint64
@@ -90,7 +90,7 @@ proc respond(conn: FuseConnection, req: Request, data: string, error: cint=0): F
     error: error.int32,
     unique: req.reqId
   ))
-  return conn.pipe.output.provide(header & data)
+  return conn.pipe.output.send(header & data)
 
 proc respond[T](conn: FuseConnection, req: Request, data: T, error: cint=0): Future[void] =
   conn.respond(req, packStruct(data), error)
@@ -199,12 +199,12 @@ proc handleInit(conn: FuseConnection) {.async.} =
   var initRespHeader = fuse_out_header(len: (initRespS.len + sizeof(fuse_out_header)).uint32, error: 0.int32, unique: init.unique)
   let initRespHeaderS = packStruct(initRespHeader)
 
-  await conn.pipe.output.provide(initRespHeaderS & initRespS)
+  await conn.pipe.output.send(initRespHeaderS & initRespS)
 
 proc setup(pipe: IpcPipe): FuseConnection =
   let conn = FuseConnection(fakePipe: pipe, pipe: newMsgPipe(pipe.fileno))
 
-  proc getRequests(): Stream[Request] {.asyncIterator.} =
+  proc getRequests(): Input[Request] {.asyncIterator.} =
     await conn.handleInit()
     echo "FUSE init ok"
 
