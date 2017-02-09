@@ -7,4 +7,4 @@ license       = "MIT"
 
 [Deps]
 Requires: "nim >= 0.15.0"
-Requires: "reactor.nim >= 0.3.2"
+Requires: "reactor >= 0.3.2"
