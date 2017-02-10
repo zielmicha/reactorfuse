@@ -24,7 +24,7 @@ type
   Attributes* = fuse_attr
 
   RequestKind* = enum
-    fuseLookup, fuseGetAttr, fuseForget, fuseOpen, fuseRead, fuseRelease, fuseCreate
+    fuseLookup, fuseGetAttr, fuseForget, fuseOpen, fuseRead, fuseRelease, fuseCreate, fuseWrite
 
   DirEntryKind* = enum
     dtUnknown = 0
@@ -69,6 +69,11 @@ type
       createFlags*: uint32
       createMode*: uint32
       createName*: string
+    of fuseWrite:
+      writeOffset*: uint64
+      writeSize*: uint32
+      writeFlags*: uint32
+      writeData*: cstring
     of fuseRead:
       # read file or directory listing data
       offset*: uint64
@@ -128,6 +133,10 @@ proc respondToCreate*(conn: FuseConnection, req: Request, newNodeId: NodeId, fil
                                     fh: fileHandle,
                                     open_flags: if keepCache: FOPEN_KEEP_CACHE else: 0))
 
+proc respondToWrite*(conn: FuseConnection, req: Request, written: uint32): Future[void] =
+  assert req.kind == fuseWrite
+  conn.respond(req, fuse_write_out(size: written))
+
 proc respondToOpen*(conn: FuseConnection, req: Request, fileHandle: uint64, keepCache=false): Future[void] =
   assert req.kind == fuseOpen
   conn.respond(req, fuse_open_out(fh: fileHandle, open_flags: if keepCache: FOPEN_KEEP_CACHE else: 0))
@@ -182,6 +191,14 @@ proc translateMsg(conn: FuseConnection, item: string): Future[Option[Request]] {
 
     let name = rest[sizeof(fuse_open_in)..^1]
     req.createName = name.cstring.`$`
+  of FUSE_WRITE:
+    req.kind = fuseWrite
+    let info = unpackStruct(rest, fuse_write_in)
+    req.fileHandle = info.fh
+    req.writeOffset = info.offset
+    req.writeSize = info.size
+    req.writeFlags = info.write_flags
+    req.writeData = rest[sizeof(fuse_write_in)..^1]
   of {FUSE_OPEN, FUSE_OPENDIR}:
     req.kind = fuseOpen
     req.isDir = kind == FUSE_OPENDIR
