@@ -24,7 +24,7 @@ type
   Attributes* = fuse_attr
 
   RequestKind* = enum
-    fuseLookup, fuseGetAttr, fuseForget, fuseOpen, fuseRead, fuseRelease
+    fuseLookup, fuseGetAttr, fuseForget, fuseOpen, fuseRead, fuseRelease, fuseCreate
 
   DirEntryKind* = enum
     dtUnknown = 0
@@ -64,6 +64,11 @@ type
     of fuseRelease:
       # release file handle
       discard
+    of fuseCreate:
+      # create file/dir
+      createFlags*: uint32
+      createMode*: uint32
+      createName*: string
     of fuseRead:
       # read file or directory listing data
       offset*: uint64
@@ -110,6 +115,19 @@ proc respondToLookup*(conn: FuseConnection, req: Request, newNodeId: NodeId, att
                                    attr: attr,
                                    nodeid: newNodeId))
 
+proc respondToCreate*(conn: FuseConnection, req: Request, newNodeId: NodeId, fileHandle: uint64, attr: Attributes,
+                      keepCache=false, attrTimeout: Time=Time(), entryTimeout: Time=forever, generation: uint64=0): Future[void] =
+  assert req.kind == fuseCreate
+  conn.respond(req, fuse_create_out(nodeid: newNodeId,
+                                    generation: generation,
+                                    attr_valid: attrTimeout.sec,
+                                    attr_valid_nsec: attrTimeout.nsec,
+                                    entry_valid: entryTimeout.sec,
+                                    entry_valid_nsec: entryTimeout.nsec,
+                                    attr: attr,
+                                    fh: fileHandle,
+                                    open_flags: if keepCache: FOPEN_KEEP_CACHE else: 0))
+
 proc respondToOpen*(conn: FuseConnection, req: Request, fileHandle: uint64, keepCache=false): Future[void] =
   assert req.kind == fuseOpen
   conn.respond(req, fuse_open_out(fh: fileHandle, open_flags: if keepCache: FOPEN_KEEP_CACHE else: 0))
@@ -155,6 +173,15 @@ proc translateMsg(conn: FuseConnection, item: string): Future[Option[Request]] {
     req.lookupName = rest.cstring.`$`
   of FUSE_FORGET:
     req.kind = fuseForget
+  of FUSE_CREATE:
+    req.kind = fuseCreate
+
+    let info = unpackStruct(rest, fuse_open_in)
+    req.createFlags = info.flags
+    req.createMode = info.mode
+
+    let name = rest[sizeof(fuse_open_in)..^1]
+    req.createName = name.cstring.`$`
   of {FUSE_OPEN, FUSE_OPENDIR}:
     req.kind = fuseOpen
     req.isDir = kind == FUSE_OPENDIR

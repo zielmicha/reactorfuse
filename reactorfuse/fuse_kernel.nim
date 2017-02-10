@@ -175,6 +175,21 @@ type
     flags*: uint32
     mode*: uint32
 
+  fuse_create_in* = fuse_open_in
+
+  fuse_create_out* = object
+    nodeid*: uint64             # Inode ID
+    generation*: uint64         # Inode generation: nodeid:gen must
+    entry_valid*: uint64        # Cache timeout for the name
+    attr_valid*: uint64         # Cache timeout for the attributes
+    entry_valid_nsec*: uint32
+    attr_valid_nsec*: uint32
+
+    attr*: fuse_attr
+    fh*: uint64
+    open_flags*: uint32
+
+
   fuse_open_out* = object
     fh*: uint64
     open_flags*: uint32
