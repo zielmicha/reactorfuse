@@ -145,7 +145,7 @@ type
 
   fuse_mkdir_in* = object
     mode*: uint32
-    padding*: uint32
+    umask*: uint32
 
   fuse_rename_in* = object
     newdir*: uint64
@@ -222,6 +222,8 @@ type
   fuse_write_out* = object
     size*: uint32
     padding*: uint32
+
+  fuse_mkdir_out* = fuse_entry_out
 
 
 const
