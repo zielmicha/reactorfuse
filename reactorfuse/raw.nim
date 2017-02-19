@@ -24,7 +24,7 @@ type
   Attributes* = fuse_attr
 
   RequestKind* = enum
-    fuseLookup, fuseGetAttr, fuseForget, fuseOpen, fuseRead, fuseRelease
+    fuseLookup, fuseGetAttr, fuseForget, fuseOpen, fuseRead, fuseRelease, fuseCreate, fuseWrite, fuseMkdir
 
   DirEntryKind* = enum
     dtUnknown = 0
@@ -64,10 +64,26 @@ type
     of fuseRelease:
       # release file handle
       discard
+    of fuseCreate:
+      # create file/dir
+      createFlags*: uint32
+      createMode*: uint32
+      createName*: string
+    of fuseWrite:
+      writeOffset*: uint64
+      writeSize*: uint32
+      writeFlags*: uint32
+      writeData*: cstring
     of fuseRead:
       # read file or directory listing data
       offset*: uint64
       size*: uint32
+    of fuseMkdir:
+      # mkdir
+      mkdirMode*: uint32
+      mkdirUmask*: uint32
+      mkdirName*: string
+
 
   FuseConnection* = ref object
     fakePipe: IpcPipe
@@ -109,6 +125,35 @@ proc respondToLookup*(conn: FuseConnection, req: Request, newNodeId: NodeId, att
                                    generation: generation,
                                    attr: attr,
                                    nodeid: newNodeId))
+
+proc respondToMkdir*(conn: FuseConnection, req: Request, newNodeId: NodeId, attr: Attributes,
+                     attrTimeout: Time=Time(), entryTimeout: Time=forever, generation: uint64=0): Future[void] =
+  assert req.kind == fuseMkdir
+  conn.respond(req, fuse_entry_out(attr_valid: attrTimeout.sec,
+                                   attr_valid_nsec: attrTimeout.nsec,
+                                   entry_valid: entryTimeout.sec,
+                                   entry_valid_nsec: entryTimeout.nsec,
+                                   generation: generation,
+                                   attr: attr,
+                                   nodeid: newNodeId))
+
+
+proc respondToCreate*(conn: FuseConnection, req: Request, newNodeId: NodeId, fileHandle: uint64, attr: Attributes,
+                      keepCache=false, attrTimeout: Time=Time(), entryTimeout: Time=forever, generation: uint64=0): Future[void] =
+  assert req.kind == fuseCreate
+  conn.respond(req, fuse_create_out(nodeid: newNodeId,
+                                    generation: generation,
+                                    attr_valid: attrTimeout.sec,
+                                    attr_valid_nsec: attrTimeout.nsec,
+                                    entry_valid: entryTimeout.sec,
+                                    entry_valid_nsec: entryTimeout.nsec,
+                                    attr: attr,
+                                    fh: fileHandle,
+                                    open_flags: if keepCache: FOPEN_KEEP_CACHE else: 0))
+
+proc respondToWrite*(conn: FuseConnection, req: Request, written: uint32): Future[void] =
+  assert req.kind == fuseWrite
+  conn.respond(req, fuse_write_out(size: written))
 
 proc respondToOpen*(conn: FuseConnection, req: Request, fileHandle: uint64, keepCache=false): Future[void] =
   assert req.kind == fuseOpen
@@ -155,6 +200,23 @@ proc translateMsg(conn: FuseConnection, item: string): Future[Option[Request]] {
     req.lookupName = rest.cstring.`$`
   of FUSE_FORGET:
     req.kind = fuseForget
+  of FUSE_CREATE:
+    req.kind = fuseCreate
+
+    let info = unpackStruct(rest, fuse_open_in)
+    req.createFlags = info.flags
+    req.createMode = info.mode
+
+    let name = rest[sizeof(fuse_open_in)..^1]
+    req.createName = name.cstring.`$`
+  of FUSE_WRITE:
+    req.kind = fuseWrite
+    let info = unpackStruct(rest, fuse_write_in)
+    req.fileHandle = info.fh
+    req.writeOffset = info.offset
+    req.writeSize = info.size
+    req.writeFlags = info.write_flags
+    req.writeData = rest[sizeof(fuse_write_in)..^1]
   of {FUSE_OPEN, FUSE_OPENDIR}:
     req.kind = fuseOpen
     req.isDir = kind == FUSE_OPENDIR
@@ -168,6 +230,13 @@ proc translateMsg(conn: FuseConnection, item: string): Future[Option[Request]] {
     req.offset = info.offset
     req.size = info.size
     req.fileHandle = info.fh
+  of FUSE_MKDIR:
+    req.kind = fuseMkdir
+    let info = unpackStruct(rest, fuse_mkdir_in)
+    req.mkdirMode = info.mode
+    req.mkdirUmask = info.umask
+    let name = rest[sizeof(fuse_mkdir_in)..^1]
+    req.mkdirName = name.cstring.`$`
   of {FUSE_RELEASEDIR, FUSE_RELEASE}:
     req.kind = fuseRelease
     req.isDir = kind == FUSE_RELEASEDIR
